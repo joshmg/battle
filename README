@@ -1,0 +1,13 @@
+Please do NOT distrubute. Feel free to compile and run any code.
+(http://www.github.com/joshmg)
+
+
+Last Updated: September 24, 2010
+
+Documentation is limited but will soon be underway as well as significant code-cleanup.
+
+All libraries compiled and linked with with MSVS 2010 "Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 16.00.30319.01 for 80x86".
+
+Documentation needs to be created to easily understand how to even begin to use this project (which will be completed soon).
+
+Due to utilizing winsock (reference "connection" project), this project requires a Windows platform and is not known to be portable.
