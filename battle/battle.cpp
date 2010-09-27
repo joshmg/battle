@@ -233,7 +233,7 @@ int main(int argc, char** argv) {
     }
     // -------------------- EQUIP -------------------- //
     else if (words[0] == "equip") {
-      if (words.size() > 2) {
+      if (words.size() > 3) {
         if (words[1] == "darkmatter") {
           map<int, const darkmatter&> toon_dmatter = toons[TOON_ID]->get_dmatter();
           map<int, const darkmatter&>::iterator toon_dmatter_it = toon_dmatter.begin();

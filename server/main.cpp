@@ -29,9 +29,12 @@ bool shutdown_flag;
 p2p* new_connection;
 
 extern void time_loop(void*);
+server* new_world_server();
+server* new_battle_server();
 
 void new_toon(int server_id, int connection_id, string& data) {
   p2p* connection = hosts[server_id]->get_connection(connection_id);
+  if (connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
 
   vector<string> temp = explode(data, DELIM, 2);
   if (temp.size() < 2) {
@@ -100,6 +103,7 @@ void new_toon(int server_id, int connection_id, string& data) {
 
 void load_toon(int server_id, int connection_id, string& toon_name) {
   p2p* connection = hosts[server_id]->get_connection(connection_id);
+  if (connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
 
   vector<row> results;
   row char_row, class_row;
@@ -140,17 +144,26 @@ void load_toon(int server_id, int connection_id, string& toon_name) {
 
 void transmit_toons(int server_id, int connection_id, string&) {
   p2p* connection = hosts[server_id]->get_connection(connection_id);
+  if (connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
 
-  map<int, character*> all_toons = hosts[server_id]->get_char_map();
-  map<int, character*>::iterator it = all_toons.begin();
-  while (it != all_toons.end()) {
-    connection->transmit(transmission().add(TOON_DATA).add(DELIM).add(itos(it->second->id())).add(DELIM).add(it->second->encode()));
-    it++;
+  if (!hosts[server_id]->is_battle_server()) {
+    character* local_toon = hosts[server_id]->get_character(connection_id);
+    if (local_toon == 0) { cout << "Character " << connection_id << " not found." << endl; return; }
+    connection->transmit(transmission().add(TOON_DATA).add(DELIM).add(itos(local_toon->id())).add(DELIM).add(local_toon->encode()));
+  }
+  else {
+    map<int, character*> all_toons = hosts[server_id]->get_char_map();
+    map<int, character*>::iterator it = all_toons.begin();
+    while (it != all_toons.end()) {
+      connection->transmit(transmission().add(TOON_DATA).add(DELIM).add(itos(it->second->id())).add(DELIM).add(it->second->encode()));
+      it++;
+    }
   }
 }
 
 void transmit_dmatter(int server_id, int connection_id, string&) {
   p2p* connection = hosts[server_id]->get_connection(connection_id);
+  if (connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
 
   map<int, character*> all_toons = hosts[server_id]->get_char_map();
   map<int, character*>::iterator it = all_toons.begin();
@@ -168,7 +181,9 @@ void transmit_dmatter(int server_id, int connection_id, string&) {
 
 void add_exp(int server_id, int connection_id, int gained_exp) {
   p2p* connection = hosts[server_id]->get_connection(connection_id);
+  if (connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
   character* toon = hosts[server_id]->get_character(connection_id);
+  if (toon == 0) { cout << "Character " << connection_id << " not found." << endl; return; }
 
   int old_level = toon->level();
 
@@ -193,45 +208,32 @@ void add_exp(int server_id, int connection_id, int gained_exp) {
 
 void attack(int server_id, int local_id, string& data) {
   p2p* local_connection = hosts[server_id]->get_connection(local_id);
+  if (local_connection == 0) { cout << "Connection " << local_id << " not found." << endl; return; }
   character* local_toon = hosts[server_id]->get_character(local_id);
-
-  cout << "attack1" << endl;
+  if (local_toon == 0) { cout << "Character " << local_id << " not found." << endl; return; }
 
   int remote_id = atoi(data.c_str());
   p2p* remote_connection = hosts[server_id]->get_connection(remote_id);
+  if (remote_connection == 0) { cout << "Connection " << remote_id << " not found." << endl; return; }
   character* remote_toon = hosts[server_id]->get_character(remote_id);
-
-  if (remote_toon == 0) {
-    cout << "WARNING: connection " << local_id << " attacking invalid remote toon id (" << data << ")." << endl;
-    return;
-  }
-
-  cout << "remote_id = " << remote_id << endl;
-
-  cout << "attack2" << endl;
+  if (remote_toon == 0) { cout << "WARNING: connection " << local_id << " attacking invalid remote toon id (" << data << ")." << endl; return; }
 
   if (!local_toon->can_act()) {
     local_connection->transmit(transmission().add(SERVER_ERROR).add(DELIM).add(TIMEBAR_NOT_FULL));
     return;
   }
-  cout << "a";
   if (local_toon->dead()) {
     local_connection->transmit(transmission().add(SERVER_ERROR).add(DELIM).add(LOCAL_IS_DEAD));
     return;
   }
-  cout << "b";
   if (remote_toon->dead()) {
     local_connection->transmit(transmission().add(SERVER_ERROR).add(DELIM).add(REMOTE_IS_DEAD));
     return;
   }
 
-  cout << endl << "attack3" << endl;
-
   int damage = local_toon->dmg();
   remote_toon->hp(remote_toon->hp()-damage);
   local_toon->set_timebar(0.0f);
-
-  cout << "attack4" << endl;
 
   transmission message;
   // transmit damage data to all players connected to the host:
@@ -245,8 +247,6 @@ void attack(int server_id, int local_id, string& data) {
   }
   message.clear();
 
-  cout << "attack5" << endl;
-
   if (remote_toon->dead()) {
     // transmit death data to all players connected to the host:
     // (Player A) has died.
@@ -259,16 +259,12 @@ void attack(int server_id, int local_id, string& data) {
     }
     message.clear();
 
-    cout << "attack6" << endl;
-
     int local_exp = ((float)remote_toon->level()/(float)local_toon->level())*10.0f;
     int remote_exp = 5;
 
     add_exp(server_id, local_id, local_exp);
     add_exp(server_id, remote_id, remote_exp);
   }
-
-  cout << "attack end" << endl;
 }
 
 //void disconnect(int server_id, int connection_id, string& data) {
@@ -277,7 +273,9 @@ void attack(int server_id, int local_id, string& data) {
 
 void cast_spell(int server_id, int local_id, string& data) {
   p2p* local_connection = hosts[server_id]->get_connection(local_id);
+  if (local_connection == 0) { cout << "Connection " << local_id << " not found." << endl; return; }
   character* local_toon = hosts[server_id]->get_character(local_id);
+  if (local_toon == 0) { cout << "Character " << local_id << " not found." << endl; return; }
 
   vector<string> temp = explode(data, DELIM, 1);
   if (temp.size() < 2) {
@@ -305,7 +303,9 @@ void cast_spell(int server_id, int local_id, string& data) {
   }
 
   p2p* remote_connection = hosts[server_id]->get_connection(remote_id);
+  if (remote_connection == 0) { cout << "Connection " << remote_id << " not found." << endl; return; }
   character* remote_toon = hosts[server_id]->get_character(remote_id);
+  if (remote_toon == 0) { cout << "Character " << remote_id << " not found." << endl; return; }
 
   if (all_spells.find(spell_name) == all_spells.end()) {
     local_connection->transmit(transmission().add(SERVER_ERROR).add(DELIM).add(SPELL_DOES_NOT_EXIST));
@@ -358,7 +358,9 @@ void chat_message(int server_id, int connection_id, string& data) {
 
 void shop(int server_id, int connection_id, string& data) {
   p2p* local_connection = hosts[server_id]->get_connection(connection_id);
+  if (local_connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
   character* local_toon = hosts[server_id]->get_character(connection_id);
+  if (local_toon == 0) { cout << "Character " << connection_id << " not found." << endl; return; }
 
   if (data == BROWSE_DMATTER) {
     multimap<int, darkmatter*>::iterator available_dmatter_it = hosts[server_id]->available_dmatter.begin();
@@ -433,7 +435,9 @@ void shop(int server_id, int connection_id, string& data) {
 
 void equip_dmatter(int server_id, int connection_id, string& data) {
   p2p* local_connection = hosts[server_id]->get_connection(connection_id);
+  if (local_connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
   character* local_toon = hosts[server_id]->get_character(connection_id);
+  if (local_toon == 0) { cout << "Character " << connection_id << " not found." << endl; return; }
 
   vector<string> temp = explode(data, DELIM, -1);
   if (temp.size() < 2) return;
@@ -447,7 +451,9 @@ void equip_dmatter(int server_id, int connection_id, string& data) {
 }
 void server_change(int server_id, int connection_id, string& data) {
   p2p* local_connection = hosts[server_id]->get_connection(connection_id);
+  if (local_connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }
   character* local_toon = hosts[server_id]->get_character(connection_id);
+  if (local_toon == 0) { cout << "Character " << connection_id << " not found." << endl; return; }
 
   local_connection->disable_receive();
 
@@ -463,7 +469,7 @@ void server_change(int server_id, int connection_id, string& data) {
       }
     }
     if (add_to == 0) {
-      add_to = new server;
+      add_to = new_battle_server(); // new server;
       hosts.push_back(add_to);
     }
 
@@ -483,6 +489,42 @@ void server_change(int server_id, int connection_id, string& data) {
   }
 
   local_connection->enable_receive();
+}
+
+server* new_world_server() {
+  cout << "Defining world-host commands..." << endl;
+
+  server* new_serv = new server;
+  new_serv->enable_battle(false);
+  new_serv->add_action(NEW_TOON, &new_toon);
+  new_serv->add_action(LOAD_TOON, &load_toon);
+  new_serv->add_action(REQUEST_TOON_DATA, &transmit_toons);
+  new_serv->add_action(REQUEST_TOON_DMATTER, &transmit_dmatter);
+  //new_serv->add_action(DISCONNECT, &disconnect);
+  new_serv->add_action(GLOBAL_MESSAGE, &chat_message);
+  new_serv->add_action(SHOP, &shop);
+  new_serv->add_action(EQUIP_DMATTER, &equip_dmatter);
+  new_serv->add_action(GOTO_SERV, &server_change);
+
+  return new_serv;
+}
+
+server* new_battle_server() {
+  cout << "Defining battle-host commands..." << endl;
+
+  server* new_serv = new server;
+  new_serv->enable_battle(true);
+  new_serv->add_action(NEW_TOON, &new_toon);
+  new_serv->add_action(LOAD_TOON, &load_toon);
+  new_serv->add_action(REQUEST_TOON_DATA, &transmit_toons);
+  new_serv->add_action(REQUEST_TOON_DMATTER, &transmit_dmatter);
+  new_serv->add_action(MELEE, &attack);
+  //new_serv->add_action(DISCONNECT, &disconnect);
+  new_serv->add_action(SPELL, &cast_spell);
+  new_serv->add_action(GLOBAL_MESSAGE, &chat_message);
+  new_serv->add_action(GOTO_SERV, &server_change);
+
+  return new_serv;
 }
 
 void input_branch(void*) {
@@ -568,30 +610,9 @@ int main() {
 
   shutdown_flag = false;
 
-  cout << "Defining world-host commands..." << endl;
-  hosts.push_back(new server);
-  hosts.back()->enable_battle(false);
-  hosts.back()->add_action(NEW_TOON, &new_toon);
-  hosts.back()->add_action(LOAD_TOON, &load_toon);
-  hosts.back()->add_action(REQUEST_TOON_DATA, &transmit_toons);
-  hosts.back()->add_action(REQUEST_TOON_DMATTER, &transmit_dmatter);
-  //hosts.back()->add_action(DISCONNECT, &disconnect);
-  hosts.back()->add_action(GLOBAL_MESSAGE, &chat_message);
-  hosts.back()->add_action(SHOP, &shop);
-  hosts.back()->add_action(EQUIP_DMATTER, &equip_dmatter);
-  hosts.back()->add_action(GOTO_SERV, &server_change);
+  hosts.push_back(new_world_server());
 
-  cout << "Defining battle-host commands..." << endl;
-  hosts.push_back(new server);
-  hosts.back()->add_action(NEW_TOON, &new_toon);
-  hosts.back()->add_action(LOAD_TOON, &load_toon);
-  hosts.back()->add_action(REQUEST_TOON_DATA, &transmit_toons);
-  hosts.back()->add_action(REQUEST_TOON_DMATTER, &transmit_dmatter);
-  hosts.back()->add_action(MELEE, &attack);
-  //hosts.back()->add_action(DISCONNECT, &disconnect);
-  hosts.back()->add_action(SPELL, &cast_spell);
-  hosts.back()->add_action(GLOBAL_MESSAGE, &chat_message);
-  hosts.back()->add_action(GOTO_SERV, &server_change);
+  hosts.push_back(new_battle_server());
 
   new_connection = new p2p;
   int connection_id_count = 0;

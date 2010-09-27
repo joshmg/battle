@@ -266,6 +266,10 @@ void server::enable_battle(bool value) {
   _battle_server = value;
 }
 
+bool server::is_battle_server() const {
+  return _battle_server;
+}
+
 void server::operator++(int) {
   map<int, character*>::iterator char_it = _characters.begin();
 

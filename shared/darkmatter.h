@@ -40,7 +40,7 @@ class darkmatter {
     int exp() const;
 
     void equipped(bool);
-    bool equipped();
+    bool equipped() const;
 
     bool has_spell(const std::string&) const;
 

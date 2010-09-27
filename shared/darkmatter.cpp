@@ -137,7 +137,7 @@ int darkmatter::level() const { return _level; }
 int darkmatter::exp() const{ return _exp; }
 
 void darkmatter::equipped(bool equip) { _equipped = equip; }
-bool darkmatter::equipped() { return _equipped; }
+bool darkmatter::equipped() const { return _equipped; }
 
 bool darkmatter::has_spell(const string& s) const {
   string spell_name = strtolower(s);

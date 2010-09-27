@@ -7,6 +7,7 @@
 #include "../shared/character.h"
 #include "../shared/str/str.h"
 #include "../shared/shared.h"
+#include "../shared/darkmatter.h"
 #include <GL/glu.h>
 #include <GL/glut.h>
 #include <map>
@@ -80,6 +81,19 @@ void drawbar(const point3d& pos, const point3d& size, const point3d& color, cons
   glPopMatrix();
 }
 
+void drawCircle(float r, const point3d& pos, const point3d& color, bool filled=true) {
+  float to_deg = 3.14159f/180.0f;
+  glPushMatrix();
+  glColor3f(color.x, color.y, color.z);
+  if (filled) glBegin(GL_TRIANGLE_FAN);
+  else glBegin(GL_LINE_LOOP);
+  for (int theta=0;theta<360;theta+=5) {
+    glVertex3f(pos.x + sin(theta*to_deg) * r, pos.y + cos(theta*to_deg) * r, pos.z);
+  }
+  glEnd();
+  glPopMatrix();
+}
+
 void drawScene() {
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear last draw buffer
 
@@ -150,7 +164,22 @@ void drawScene() {
   while (it != toons.end()) {
 
     point3d restore_old_pos = base_pos;
-    if (it->first == TOON_ID) base_pos = point3d(0.0f, 0.0f, 0.0f);
+    // if toon being drawn is this connection's toon:
+    if (it->first == TOON_ID) {
+      base_pos = point3d(0.0f, 0.0f, 0.0f);
+      // draw darkmatter
+      map<int, const darkmatter&> toon_dmatter = it->second->get_dmatter();
+      map<int, const darkmatter&>::const_iterator dmatter_it = toon_dmatter.begin();
+      point3d dmatter_pos = base_pos+point3d(80.0f, 25.0f, 0.0f);
+      while (dmatter_it != toon_dmatter.end()) {
+        if (dmatter_it->second.equipped()) {
+          point3d dm_color(1.0f, 1.0f, 1.0f);
+          drawCircle(2, dmatter_pos, dm_color, true);
+          dmatter_pos.x += 10.0f;
+        }
+        dmatter_it++;
+      }
+    }
 
     int toon_id = it->first;
     character* toon = it->second;
