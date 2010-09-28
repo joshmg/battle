@@ -99,7 +99,6 @@ class character {
     void set_timebar(float);
 
     void load_dmatter();                        // designed for server use
-
     void add_dmatter(const row&);
     void clear_dmatter();
 

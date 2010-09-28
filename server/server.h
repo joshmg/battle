@@ -50,7 +50,7 @@ class server {
                                                                                 //   to the other connections, reporting the connection removal.
                                                                                 // Removes the connection's ping from the server's ping list.
     bool has_connection_id(int);
-    p2p* get_connection(int);
+    p2p* get_connection(int) const;
     void recv(int, std::string&, std::string&);
     void add_character(int, character*);                                        // Adds the character to the server's character list.
                                                                                 //   If the character's ID existed previously, the old pointer is deleted.
@@ -61,9 +61,12 @@ class server {
                                                                                 //   if deallocate_mem is true (default) the character (and
                                                                                 //   its dark matter) is erased from memory.
 
-    character* get_character(int);                                              // Returns the pointer to the character referenced by id.
+    character* get_character(int) const;                                        // Returns the pointer to the character referenced by id.
                                                                                 //   If the id does not have an associated character, 0 is returned.
     std::map<int, character*> get_char_map();
+
+    void change_client_id(int old_id, int new_id);                              // Changes all of the necessary associations from one id to another.
+                                                                                // Informs the client of the change (updates server code and toon id).
 
     std::multimap<int, darkmatter*> available_dmatter; // <database class id, darkmatter*>
 
@@ -74,6 +77,8 @@ class server {
 
     void enable_battle(bool=true);
     bool is_battle_server() const;
+
+    void save(int toon_id=-1) const;
 };
 
 struct ping_data {

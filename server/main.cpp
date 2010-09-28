@@ -97,6 +97,11 @@ void new_toon(int server_id, int connection_id, string& data) {
   results.clear();
   toon->define(char_row); // or: toon->id(char_row[char_id]);
   toon->full_heal();
+
+  // change connection id to character id and notify client
+  hosts[server_id]->change_client_id(connection_id, toon->id());
+  connection_id = toon->id();
+
   hosts[server_id]->add_character(connection_id, toon);
   connection->transmit(transmission().add(TOON_DATA).add(DELIM).add(itos(toon->id())).add(DELIM).add(toon->encode()));
 }
@@ -132,6 +137,10 @@ void load_toon(int server_id, int connection_id, string& toon_name) {
     hosts[server_id]->remove_connection(connection_id);
     return;
   }
+
+  // change connection id to character id and notify client
+  hosts[server_id]->change_client_id(connection_id, toon->id());
+  connection_id = toon->id();
 
   hosts[server_id]->add_character(connection_id, toon);
   toon->full_heal();
@@ -447,8 +456,10 @@ void equip_dmatter(int server_id, int connection_id, string& data) {
 
   if (local_toon->has_dmatter(dmatter_id)) {
     local_toon->equip_dmatter(dmatter_id, 1, slot_id);
+    hosts[server_id]->save(connection_id);
   }
 }
+
 void server_change(int server_id, int connection_id, string& data) {
   p2p* local_connection = hosts[server_id]->get_connection(connection_id);
   if (local_connection == 0) { cout << "Connection " << connection_id << " not found." << endl; return; }

@@ -53,16 +53,21 @@ void server::shutdown(int WAIT_TIME) {
 
   Sleep(WAIT_TIME*1000);
 
+  save(); // save all characters and dmatter to database
+
   while (connection_it != _connections.end()) {
     connection_it->second->set_disc_func(&do_nothing);
+    connection_it->second->disable_receive();
     remove_connection(connection_it->first);
     connection_it = _connections.begin();
   }
   _connections.clear();
 
+
+  // might want to comment this entire part out...
   map<int, character*>::iterator toon_it = _characters.begin();
   while (toon_it != _characters.end()) {
-    remove_character(toon_it->first);
+    remove_character(toon_it->first); // redundently saves each character... whatever for now
     toon_it = _characters.begin();
   }
 }
@@ -125,9 +130,9 @@ void server::recv(int connection_id, string& code, string& data) {
   else (_actions[code])(_id, connection_id, data);
 }
 
-p2p* server::get_connection(int connection_id) {
+p2p* server::get_connection(int connection_id) const {
   if (_connections.find(connection_id) == _connections.end()) return 0;
-  return _connections[connection_id];
+  return _connections.find(connection_id)->second;
 }
 
 void server::add_character(int connection_id, character* toon) {
@@ -139,41 +144,48 @@ void server::add_character(int connection_id, character* toon) {
   _characters[connection_id]->load_dmatter();
 }
 
-character* server::get_character(int connection_id) {
+character* server::get_character(int connection_id) const {
   if (_characters.find(connection_id) == _characters.end()) return 0;
-  return _characters[connection_id];
+  return _characters.find(connection_id)->second;
 }
 
 void server::remove_character(int connection_id, bool deallocate_mem) {
   if (_characters.find(connection_id) != _characters.end()) {
-    character* toon = _characters[connection_id];
 
-    // update character's dmatter and delete from memory:
-    map<int, const darkmatter&> toon_dmatter = toon->get_dmatter();
-    map<int, const darkmatter&>::const_iterator dmatter_it = toon_dmatter.begin();
-    while (dmatter_it != toon_dmatter.end()) {
-    row new_dmatter_data = dmatter_it->second.to_row();
-    new_dmatter_data.remove(dmatter_id); // to avoid changing the unique ID...
-      if (dmatter_table->edit_row(dmatter_table->select(query().where(predicate().And(equalto(dmatter_id, itos(dmatter_it->second.id()))))), new_dmatter_data) == 0) {
-        cout << "WARNING: Error updating Darkmatter data upon disconnect." << endl;
-      }
-      dmatter_it++;
-    }
-    if (deallocate_mem) toon->clear_dmatter(); // delete dmatter from memory
+    save(connection_id);
 
-    // update character's db entry:
-    row char_data = _characters[connection_id]->to_row();
-    char_data.remove(char_id);
-    if (char_table->edit_row(char_table->select(query().where(predicate().And(equalto(char_name, _characters[connection_id]->name())))), char_data) == 0) {
-      cout << "WARNING: Error updating character data upon disconnect." << endl;
+    if (deallocate_mem) {
+      _characters[connection_id]->clear_dmatter(); // deletes dmatter from memory
+      delete _characters[connection_id];
     }
-    if (deallocate_mem) delete toon;
     _characters.erase(connection_id);
   }
 }
 
 map<int, character*> server::get_char_map() {
   return _characters;
+}
+
+void server::change_client_id(int old_id, int new_id) {
+  if (_connections.find(old_id) == _connections.end()) return;
+  if (_connections.find(new_id) != _connections.end()) return;
+
+  _connections[old_id]->disable_receive();
+  _connections[old_id]->transmit(transmission().add(DEFN_SERVER_CODE).add(DELIM).add(itos(_id)).add(DELIM).add(itos(new_id)));
+  _connections[old_id]->transmit(transmission().add(DEFN_ID).add(DELIM).add(itos(new_id)));
+  _connections[new_id] = _connections[old_id];
+  _connections.erase(old_id);
+  _connections[new_id]->enable_receive();
+
+  if (_characters.find(old_id) != _characters.end()) {
+    _characters[new_id] = _characters[old_id];
+    _characters.erase(old_id);
+  }
+  
+  if (_pings.find(old_id) != _pings.end()) {
+    _pings[new_id] = _pings[old_id];
+    _pings.erase(old_id);
+  }
 }
 
 void server::ping(int connection_id) {
@@ -302,5 +314,45 @@ void server::operator++(int) {
     }
 
     tick_count = (++tick_count)%60;
+  }
+}
+
+void server::save(int toon_id) const {
+
+  // if toon_id is negative, save all toons in the server
+  if (toon_id < 0) {
+    map<int, character*>::const_iterator toon_it = _characters.begin();
+    while (toon_it != _characters.end()) {
+      if (toon_it->first >= 0) // just for security
+        save(toon_it->first);
+      toon_it++;
+    }
+    return;
+  }
+
+  if (_characters.find(toon_id) == _characters.end()) { cout << "WARNING: Error saving character. ID not found: " << toon_id << endl; return; }
+
+  const character* toon = get_character(toon_id);
+
+  // update character's db entry:
+  row char_data = toon->to_row();
+  char_data.remove(char_id);
+  if (char_table->edit_row(char_table->select(query().where(predicate().And(equalto(char_id, itos(toon_id))))), char_data) == 0) {
+    char_table->delete_row(char_table->select(query().where(predicate().And(equalto(char_name, toon->name())))));
+    char_data.add(char_id, itos(toon_id));
+    char_table->add_row(char_data);
+  }
+
+  // update character's darkmatter db entries:
+  map<int, const darkmatter&> toon_dmatter = toon->get_dmatter();
+  map<int, const darkmatter&>::iterator dmatter_it = toon_dmatter.begin();
+  while (dmatter_it != toon_dmatter.end()) {
+    row dmatter_data = dmatter_it->second.to_row();
+    dmatter_data.remove(dmatter_id); // to avoid changing the unique ID...
+    dmatter_data[dmatter_owner_id] = toon_id;
+    if (dmatter_table->edit_row(dmatter_table->select(query().where(predicate().And(equalto(dmatter_id, itos(dmatter_it->second.id()))))), dmatter_data) == 0) {
+      dmatter_table->add_row(dmatter_data);
+    }
+    dmatter_it++;
   }
 }
